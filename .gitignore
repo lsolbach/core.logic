@@ -12,3 +12,12 @@ out/
 tests.js
 resources/
 *init.clj
+
+## VS Code
+.vscode/
+.calva/
+.lsp/
+.cpcache/
+.clj-kondo/
+.portal/
+
