@@ -161,11 +161,13 @@
   [base-db & facts]
   (reduce #(apply db-fact %1 %2) base-db facts))
 
-(defn db [& facts]
+(defn db
   "Returns a new facts database with the given `facts` added."
+  [& facts]
   (apply db-facts empty-db facts))
 
-(defn db-retractions [base-db & retractions]
+(defn db-retractions
   "Returns a database based on `base-db` with the given `retractions` removed."
+  [base-db & retractions]
   (reduce #(apply db-retraction %1 %2) base-db retractions))
 
