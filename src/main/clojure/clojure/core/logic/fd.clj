@@ -8,10 +8,11 @@
 
 (ns clojure.core.logic.fd
   (:refer-clojure :exclude [== < > <= >= + - * quot distinct])
-  (:use [clojure.core.logic.protocols]
-        [clojure.core.logic :exclude [get-dom == != !=c] :as l])
+  (:use [clojure.core.logic.protocols])
   (:require [clojure.set :as set]
-            [clojure.string :as string])
+            [clojure.string :as string]
+;            [clojure.core.logic.protocols :refer :all]
+            [clojure.core.logic :as l])
   (:import [java.io Writer]
            [java.util UUID]
            [clojure.core.logic.protocols IEnforceableConstraint]))
@@ -45,7 +46,7 @@
          interval multi-interval)
 
 (defn bounds [i]
-  (pair (-lb i) (-ub i)))
+  (l/pair (-lb i) (-ub i)))
 
 (defn interval-< [i j]
   (core/< (-ub i) (-lb j)))
@@ -598,15 +599,15 @@
 
 (defn get-dom
   [a x]
-  (if (lvar? x)
+  (if (l/lvar? x)
     (l/get-dom a x ::l/fd)
     x))
 
 (defn ext-dom-fd
   [a x dom domp]
-  (let [a (add-dom a x ::l/fd dom)]
+  (let [a (l/add-dom a x ::l/fd dom)]
     (if (not= domp dom)
-      ((run-constraints* [x] (:cs a) ::l/fd) a)
+      ((l/run-constraints* [x] (:cs a) ::l/fd) a)
       a)))
 
 (defn singleton-dom? [x]
@@ -616,8 +617,8 @@
   [a x dom domp]
   (if (singleton-dom? dom)
     (let [xv (walk a x)]
-      (if (lvar? xv)
-        (ext-run-cs (rem-dom a x ::l/fd) x dom)
+      (if (l/lvar? xv)
+        (ext-run-cs (l/rem-dom a x ::l/fd) x dom)
         a))
     (ext-dom-fd a x dom domp)))
 
@@ -630,7 +631,7 @@
   (fn [a]
     (when dom
       (cond
-       (lvar? x) (resolve-storable-dom a x dom domp)
+       (l/lvar? x) (resolve-storable-dom a x dom domp)
        (-member? dom x) a
        :else nil))))
 
@@ -644,7 +645,7 @@
           dom  (if domp
                  (-intersection dom domp)
                  dom)]
-      ((composeg
+      ((l/composeg
          (process-dom x dom domp)
          (if (and (nil? domp)
                   (not (singleton-dom? dom)))
@@ -658,7 +659,7 @@
         dom (last xs-and-dom)
         domsym (gensym "dom_")]
     `(let [~domsym ~dom]
-      (fresh []
+      (l/fresh []
         ~@(map (fn [x]
                  `(dom ~x ~domsym))
                xs)))))
@@ -687,15 +688,15 @@
 (extend-protocol IForceAnswerTerm
   FiniteDomain
   (-force-ans [v x]
-    ((map-sum (fn [n] (ext-run-csg x n))) (to-vals v)))
+    ((map-sum (fn [n] (l/ext-run-csg x n))) (to-vals v)))
 
   IntervalFD
   (-force-ans [v x]
-    ((map-sum (fn [n] (ext-run-csg x n))) (to-vals v)))
+    ((map-sum (fn [n] (l/ext-run-csg x n))) (to-vals v)))
 
   MultiIntervalFD
   (-force-ans [v x]
-    ((map-sum (fn [n] (ext-run-csg x n))) (to-vals v))))
+    ((map-sum (fn [n] (l/ext-run-csg x n))) (to-vals v))))
 
 (defn -domc [x]
   (reify
@@ -709,14 +710,14 @@
           (invoke [_ s]
             (if xd
               (when (-member? xd xv)
-                (rem-dom s x ::l/fd))
+                (l/rem-dom s x ::l/fd))
               s))
           IEntailed
           (-entailed? [_]
             (nil? xd))
           IRunnable
           (-runnable? [_]
-            (not (lvar? xv))))))
+            (not (l/lvar? xv))))))
     IConstraintOp
     (-rator [_] `domc)
     (-rands [_] [x])
@@ -724,19 +725,19 @@
     (-watched-stores [this] #{::l/subst})))
 
 (defn domc [x]
-  (cgoal (-domc x)))
+  (l/cgoal (-domc x)))
 
 (defn ==c [u v]
   (reify
     IEnforceableConstraint
     IConstraintStep
     (-step [this s]
-      (let-dom s [u du v dv]
+      (l/let-dom s [u du v dv]
         (reify
           clojure.lang.IFn
           (invoke [_ s]
             (let [i (-intersection du dv)]
-              ((composeg
+              ((l/composeg
                  (process-dom u i du)
                  (process-dom v i dv)) s)))
           IEntailed
@@ -758,14 +759,14 @@
   "A finite domain constraint. u and v must be equal. u and v must
    eventually be given domains if vars."
   [u v]
-  (cgoal (==c u v)))
+  (l/cgoal (==c u v)))
 
 (defn !=c [u v]
   (reify 
     IEnforceableConstraint
     IConstraintStep
     (-step [this s]
-      (let-dom s [u du v dv]
+      (l/let-dom s [u du v dv]
         (let [su? (singleton-dom? du)
               sv? (singleton-dom? dv)]
           (reify
@@ -795,20 +796,20 @@
   "A finite domain constraint. u and v must not be equal. u and v
    must eventually be given domains if vars."
   [u v]
-  (cgoal (!=c u v)))
+  (l/cgoal (!=c u v)))
 
 (defn <=c [u v]
   (reify 
     IEnforceableConstraint
     IConstraintStep
     (-step [this s]
-      (let-dom s [u du v dv]
+      (l/let-dom s [u du v dv]
         (reify
           clojure.lang.IFn
           (invoke [_ s]
             (let [umin (-lb du)
                   vmax (-ub dv)]
-              ((composeg*
+              ((l/composeg*
                  (process-dom u (-keep-before du (inc vmax)) du)
                  (process-dom v (-drop-before dv umin) dv)) s)))
           IEntailed
@@ -828,13 +829,13 @@
   "A finite domain constraint. u must be less than or equal to v.
    u and v must eventually be given domains if vars."
   [u v]
-  (cgoal (<=c u v)))
+  (l/cgoal (<=c u v)))
 
 (defn <
   "A finite domain constraint. u must be less than v. u and v
    must eventually be given domains if vars."
   [u v]
-  (all
+  (l/all
    (<= u v)
    (!= u v)))
 
@@ -859,7 +860,7 @@
     IEnforceableConstraint
     IConstraintStep
     (-step [this s]
-      (let-dom s [u du v dv w dw]
+      (l/let-dom s [u du v dv w dw]
         (reify
           clojure.lang.IFn
           (invoke [_ s]
@@ -880,7 +881,7 @@
                   (when-let [vi (if (and vi dv) (-intersection vi dv) vi)]
                     (when (or (not (every? singleton-dom? [wi ui vi]))
                               (core/= (core/+ ui vi) wi))
-                      ((composeg*
+                      ((l/composeg*
                          (process-dom w wi dw)
                          (process-dom u ui du)
                          (process-dom v vi dv))
@@ -909,7 +910,7 @@
   "A finite domain constraint for addition and subtraction.
    x, y & sum must eventually be given domains if vars."
   [x y sum]
-  (cgoal (+c x y sum)))
+  (l/cgoal (+c x y sum)))
 
 (defn -
   [u v w]
@@ -932,7 +933,7 @@
      IEnforceableConstraint
      IConstraintStep
      (-step [this s]
-       (let-dom s [u du v dv w dw]
+       (l/let-dom s [u du v dv w dw]
          (reify
            clojure.lang.IFn
            (invoke [_ s]
@@ -957,7 +958,7 @@
                    (when-let [vi (if (and vi dv) (-intersection vi dv) vi)]
                      (when (or (not (every? singleton-dom? [wi ui vi]))
                                (core/= (core/* ui vi) wi))
-                       ((composeg*
+                       ((l/composeg*
                           (process-dom w wi dw)
                           (process-dom u ui du)
                           (process-dom v vi dv)) s)))))))
@@ -986,7 +987,7 @@
    thus division. x, y & product must be eventually be given 
    domains if vars."
   [x y product]
-  (cgoal (*c x y product)))
+  (l/cgoal (*c x y product)))
 
 (defn quot [u v w]
   (* v w u))
@@ -1015,7 +1016,7 @@
                         ;; NOTE: we can't just get-dom because get-dom
                         ;; return nil, walk returns the var - David
                         v (or (get-dom s y) (walk s y))
-                        s (if-not (lvar? v)
+                        s (if-not (l/lvar? v)
                             (cond
                               (= x v) nil
                               (-member? v x) ((process-dom y (-difference v x) v) s)
@@ -1023,7 +1024,7 @@
                             s)]
                     (when s
                       (recur (next y*) s)))
-                  ((remcg this) s)))))
+                  ((l/remcg this) s)))))
           IRunnable
           (-runnable? [_]
             (singleton-dom? x)))))
@@ -1034,7 +1035,7 @@
     (-watched-stores [this] #{::l/subst})))
 
 (defn -distinct [x y* n*]
-  (cgoal (-distinctc x y* n*)))
+  (l/cgoal (-distinctc x y* n*)))
 
 (defn list-sorted? [pred ls]
   (if (empty? ls)
@@ -1062,7 +1063,7 @@
         (reify
           clojure.lang.IFn
           (invoke [_ s]
-            (let [{x* true n* false} (group-by lvar? v*)
+            (let [{x* true n* false} (group-by l/lvar? v*)
                   n* (sort core/< n*)]
               (when (list-sorted? core/< n*)
                 (let [x* (into #{} x*)
@@ -1072,10 +1073,10 @@
                       (let [x (first xs)]
                         (when-let [s ((-distinct x (disj x* x) n*) s)]
                           (recur (next xs) s)))
-                      ((remcg this) s)))))))
+                      ((l/remcg this) s)))))))
           IRunnable
           (-runnable? [_]
-            (not (lvar? v*))))))
+            (not (l/lvar? v*))))))
     IConstraintOp
     (-rator [_] `distinct)
     (-rands [_] [v*])
@@ -1088,15 +1089,15 @@
    values. v* need not be ground. Any vars in v* should
    eventually be given a domain."
   [v*]
-  (cgoal (distinctc v*)))
+  (l/cgoal (distinctc v*)))
 
-(defne bounded-listo
+(l/defne bounded-listo
   "Ensure that the list l never grows beyond bound n.
    n must have been assigned a domain."
   [l n]
   ([() _] (<= 0 n))
   ([[h . t] n]
-     (fresh [m]
+     (l/fresh [m]
        (in m (interval 0 Integer/MAX_VALUE))
        (+ m 1 n)
        (bounded-listo t m))))
@@ -1153,7 +1154,7 @@
        form)))
 
 (defn ->fd [vars exprs]
-  `(fresh [~@vars]
+  `(l/fresh [~@vars]
      ~@(reverse exprs)))
 
 (defn eq-form [form]
@@ -1162,5 +1163,5 @@
     (->fd @vars exprs)))
 
 (defmacro eq [& forms]
-  `(all
+  `(l/all
     ~@(map eq-form forms)))

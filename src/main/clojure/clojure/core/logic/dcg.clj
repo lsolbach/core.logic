@@ -7,8 +7,9 @@
 ;   You must not remove this notice, or any other, from this software.
 
 (ns clojure.core.logic.dcg
+  "Definite Clause Grammars"
   (:refer-clojure :exclude [==])
-  (:use [clojure.core.logic]))
+  (:require [clojure.core.logic :as l]))
 
 ;; TODO: think about indexing
 ;; TODO: note that rest args are problematic since we add two invisible args
@@ -29,10 +30,10 @@
   ([env [m :as c] i] (->lcons env c i false))
   ([env [m :as c] i quoted]
      (cond
-      (empty? c) `(fresh []
-                    (== ~(env (dec i)) ~(env i)))
+      (empty? c) `(l/fresh []
+                    (l/== ~(env (dec i)) ~(env i)))
       :else (let [m (if quoted `(quote ~m) m)]
-              `(== ~(env (dec i)) (lcons ~m ~(env i)))))))
+              `(l/== ~(env (dec i)) (l/lcons ~m ~(env i)))))))
 
 (defn fresh-expr? [clause]
   (and (seq? clause)
@@ -59,7 +60,7 @@
   ([[c & r :as cs] i]
      (cond
       (nil? (seq cs)) ()
-      (fresh-expr? c) (cons `(fresh ~(second c)
+      (fresh-expr? c) (cons `(l/fresh ~(second c)
                           ~@(mark-clauses (drop 2 c) i))
                        (mark-clauses r i))
       (!dcg? c) (cons c (mark-clauses r i))
@@ -73,7 +74,7 @@
 (defn handle-clauses [env [c & r :as cs]]
   (cond
    (nil? (seq cs)) ()
-   (fresh-expr? c) (cons `(fresh ~(second c)
+   (fresh-expr? c) (cons `(l/fresh ~(second c)
                        ~@(handle-clauses env (drop 2 c)))
                     (handle-clauses env r))
    (!dcg? c) (cons (second c) (handle-clauses env r))
@@ -94,7 +95,7 @@
         clauses (mark-clauses clauses)
         clauses (handle-clauses lsyms clauses)]
     `(defn ~name [~(first lsyms) ~(last lsyms)]
-       (fresh [~@(butlast (rest lsyms))]
+       (l/fresh [~@(butlast (rest lsyms))]
          ~@clauses))))
 
 (defmacro def--> [name args & clauses]
@@ -103,7 +104,7 @@
         clauses (mark-clauses clauses)
         clauses (handle-clauses lsyms clauses)]
    `(defn ~name [~@args ~(first lsyms) ~(last lsyms)]
-      (fresh [~@(butlast (rest lsyms))]
+      (l/fresh [~@(butlast (rest lsyms))]
         ~@clauses))))
 
 (defn handle-cclause [fsym osym cclause]
@@ -112,20 +113,20 @@
         lsyms (conj (into [fsym] (map lsym r)) osym)
         clauses (mark-clauses cclause)
         clauses (handle-clauses lsyms clauses)]
-    `(fresh [~@(butlast (rest lsyms))]
+    `(l/fresh [~@(butlast (rest lsyms))]
        ~@clauses)))
 
 (defmacro -->e [name & cclauses]
   (let [fsym (gensym "l1_")
         osym (gensym "o")]
    `(defn ~name [~fsym ~osym]
-      (conde
+      (l/conde
        ~@(map list (map (partial handle-cclause fsym osym) cclauses))))))
 
 (defmacro def-->e [name args & pcss]
   (let [fsym (gensym "l1_")
         osym (gensym "o")]
-   `(defne ~name [~@args ~fsym ~osym]
+   `(l/defne ~name [~@args ~fsym ~osym]
       ~@(map (fn [[p & cs]]
                (list (-> p (conj '_) (conj '_))
                      (handle-cclause fsym osym cs)))
@@ -147,14 +148,14 @@
   (--> s np vp)
 
   ;; we can stop the dcg transform
-  (--> s np (!dcg (== 1 1)) vp)
+  (--> s np (!dcg (l/== 1 1)) vp)
 
   ;; success
-  (run* [q]
+  (l/run* [q]
     (np '[the witch] []))
 
   ;; success
-  (run* [q]
+  (l/run* [q]
     (s '[a witch curses the wizard] []))
 
   (def-->e verb [v]
@@ -177,7 +178,7 @@
   (def-->e sentence [s]
     ([[:s ?np ?vp]] (noun-phrase ?np) (verb-phrase ?vp)))
 
-  (run 1 [parse-tree]
+  (l/run 1 [parse-tree]
     (sentence parse-tree '[the bat eats a cat] []))
 
   ;; ([:s [:np [:d the] [:n bat]] [:vp [:v eats] [:np [:d a] [:n cat]]]])
@@ -186,7 +187,7 @@
   (dotimes [_ 10]
     (time
      (dotimes [_ 1e3]
-       (run 1 [parse-tree]
+       (l/run 1 [parse-tree]
          (sentence parse-tree '[the bat eats a cat] [])))))
 
   ;; parsing lisp
@@ -205,8 +206,8 @@
   (def-->e digito [x]
     ([_] [x]
        (!dcg
-        (project [x]
-          (== (contains? digits x) true)))))
+        (l/project [x]
+          (l/== (contains? digits x) true)))))
 
   (def-->e numo [x]
     ([[?d . ?ds]] (digito ?d) (numo ?ds))
@@ -217,19 +218,19 @@
   (def-->e symo [x]
     ([[?a . ?as]] [?a]
        (!dcg
-        (project [?a]
-          (conde
-            ((== (contains? alpha ?a) true))
-            ((== (contains? nonalnum ?a) true)))))
+        (l/project [?a]
+          (l/conde
+            ((l/== (contains? alpha ?a) true))
+            ((l/== (contains? nonalnum ?a) true)))))
        (symro ?as)))
 
   (def-->e symro [x]
     ([[?a . ?as]] [?a]
        (!dcg
-        (project [?a]
-          (conde
-            ((== (contains? alnum ?a) true))
-            ((== (contains? nonalnum ?a) true)))))
+        (l/project [?a]
+          (l/conde
+            ((l/== (contains? alnum ?a) true))
+            ((l/== (contains? nonalnum ?a) true)))))
        (symro ?as))
     ([[]] []))
 
@@ -247,35 +248,35 @@
     ([[]] []))
 
   ;; (_.0)
-  (run* [q]
+  (l/run* [q]
     (wso (vec "  ") []))
 
   ;; ()
-  (run* [q]
+  (l/run* [q]
     (wso (vec " f ") []))
 
   ;; (\1)
-  (run* [q]
+  (l/run* [q]
     (digito q [\1] []))
 
   ;; ((\1 \2 \3))
-  (run* [q]
+  (l/run* [q]
     (numo q (vec "123") []))
 
   ;; ((\a \b \c))
-  (run* [q]
+  (l/run* [q]
     (symo q (vec "abc") []))
 
   ;; ([:n (\1 \2 \3)])
-  (run* [q]
+  (l/run* [q]
     (expro q (vec "123") []))
 
   ;; ([:s (\a \b \c)])
-  (run* [q]
+  (l/run* [q]
     (expro q (vec "abc") []))
 
   ;; (([:list ([:sym (\+)] [:sym (\a \b \c)] [:sym (\b)] [:sym :quote [:list ([:num [\1]] [:num (\2 \3)])]])]))
-  (run 1 [q]
+  (l/run 1 [q]
     (exprso q (vec " (+ abc b '(1 23))  ") []))
 
   ;; w/ def-->a ~2500ms
@@ -284,6 +285,6 @@
     (let [s (vec " (+ abc b '(1 23))  ")]
       (time
        (dotimes [_ 50]
-         (run 1 [q]
+         (l/run 1 [q]
            (exprso q s []))))))
   )

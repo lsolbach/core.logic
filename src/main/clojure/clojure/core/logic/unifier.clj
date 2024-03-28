@@ -8,8 +8,8 @@
 
 (ns clojure.core.logic.unifier
   (:refer-clojure :exclude [==])
-  (:use [clojure.core.logic.protocols]
-        [clojure.core.logic :exclude [unify] :as l]))
+  (:use [clojure.core.logic.protocols])
+  (:require [clojure.core.logic :as l]))
 
 ;; =============================================================================
 ;; Easy Unification
@@ -20,7 +20,7 @@
 (defn- proc-lvar [lvar-expr store]
   (let [v (if-let [u (@store lvar-expr)]
             u
-            (lvar lvar-expr false))]
+            (l/lvar lvar-expr false))]
     (swap! store assoc lvar-expr v)
     v))
 
@@ -55,7 +55,7 @@
                  tail (prep* n store lcons? skip)]
              (if skip
                tail
-               (lcons (prep* f store) tail)))
+               (l/lcons (prep* f store) tail)))
            (walk-term expr (replace-lvar store)))
         :else expr))))
 
@@ -78,13 +78,13 @@
 (defn queue-constraint [s c vs]
   (cond
     (vector? vs)
-    (queue s (-unwrap (apply c (map #(lvar % false) vs))))
+    (queue s (-unwrap (apply c (map #(l/lvar % false) vs))))
 
     (set? vs)
-    (reduce (fn [s v] (queue s (-unwrap (c (lvar v false))))) s vs)
+    (reduce (fn [s v] (queue s (-unwrap (c (l/lvar v false))))) s vs)
 
     (symbol? vs)
-    (queue s (-unwrap (apply c (map #(lvar % false) (list vs)))))
+    (queue s (-unwrap (apply c (map #(l/lvar % false) (list vs)))))
 
     :else
     (throw
@@ -100,15 +100,15 @@
   (first
     (take*
       (fn []
-        ((fresh [q]
-           (== u w) (== q u)
+        ((l/fresh [q]
+           (l/== u w) (l/== q u)
            (fn [a]
-             (fix-constraints a))
-           (reifyg q))
+             (l/fix-constraints a))
+           (l/reifyg q))
          init-s)))))
 
 (defn init-s [opts s]
-  (let [s (reduce (fn [s [k v]] ((== k v) s)) s (:as opts))]
+  (let [s (reduce (fn [s [k v]] ((l/== k v) s)) s (:as opts))]
     (reduce queue-constraints
       (with-meta s {:reify-vars (fn [v rs] rs)})
       (:when opts))))
@@ -117,7 +117,7 @@
   "Unify the terms ts."
   ([ts] (unify* {} ts))
   ([opts ts]
-     (let [init-s (init-s opts empty-s)]
+     (let [init-s (init-s opts l/empty-s)]
        (-unify*
          (vary-meta init-s assoc :reify-vars false)
          (reduce #(-unify* init-s %1 %2) (butlast ts))
@@ -129,14 +129,14 @@
   ([ts] (unifier* {} ts))
   ([opts ts]
      (letfn [(-unifier* [s u w]
-               (let [s (fix-constraints (l/unify (with-meta s {:reify-vars false}) u w))]
+               (let [s (l/fix-constraints (l/unify (with-meta s {:reify-vars false}) u w))]
                  (when s
                    (->> (:lvars opts)
-                     (map (fn [sym] [sym (lvar sym false)]))
+                     (map (fn [sym] [sym (l/lvar sym false)]))
                      (filter (fn [[sym var]] (not= (walk s var) var)))   
-                     (map (fn [[sym var]] [sym (-reify s var)]))
+                     (map (fn [[sym var]] [sym (l/-reify s var)]))
                      (into {})))))]
-       (let [init-s (init-s opts empty-s)]
+       (let [init-s (init-s opts l/empty-s)]
          (reduce #(-unifier* init-s %1 %2) ts)))))
 
 (defn unify
@@ -147,7 +147,7 @@
      (let [opts (if (contains? opts :as)
                   (assoc opts :as
                     (->> (:as opts)
-                      (map (fn [[k v]] [(lvar k false) (prep v)]))
+                      (map (fn [[k v]] [(l/lvar k false) (prep v)]))
                       (into {})))
                   opts)]
        (unify* opts (map prep ts)))))
@@ -159,7 +159,7 @@
      (let [opts (if (contains? opts :as)
                   (assoc opts :as
                     (->> (:as opts)
-                      (map (fn [[k v]] [(lvar k false) (prep v)]))
+                      (map (fn [[k v]] [(l/lvar k false) (prep v)]))
                       (into {})))
                   opts)
            ts' (map prep ts)
